@@ -40,5 +40,152 @@ def query_db(query, args=(), one=False):
 
     rv = [dict((cur.description[idx][0], value)
                for idx, value in enumerate(row)) for row in cur.fetchall()]
+
+
     return (rv[0] if rv else None) if one else rv
+
+"""   
+## enumrate 함수 : list, tuple을 입력받아 key(index), value 를 return 해주는 함수
+## cur.descriotion에서 return 되는 값은??
+    rv = None
+    for row in cur.fetchall():
+        for idx, value in enumerate(row):
+            rv = dict(cur.descriotion[idx][0], value)
+"""
+
+
+
+def get_user_id(username):
+    print("Convenience method to look up the id for a username")
+    rv = g.db.execute('select user_id from user where username = ?',[username]).fetchone()
+
+    return rv[0] if rv else None
+
+def format_datetime(timestamp):
+    print('Format a timestamp for display')
+
+    return datetime.utcfromtimestamp(timestamp).strftime('%Y-%m-%d @ %H:%M')
+
+def gravatar_url(email, size=80):
+    print('Return the gravatar image for the given email address')
+
+    return 'http://www.gravatar.com/avatar/%s?d=identicon&s=%d' % (md5(email.strip().lower().encode('utf-8')).hexdigest(),size)
+
+@app.before_request
+def before_request():
+    print('Make sure we are connected to the database each request and look up the current user so that we know he`s there')
+
+    g.db = connect_db()
+    g.user = None
+    if 'user_id' in session:
+        g.user = query_db('select * from user where user_id = ?', [session['user_id']],one=True)
+
+@app.teardown_request
+def teardown_request(exception):
+    print('Closes the database again at the end of the request')
+
+    if hasattr(g,'db'):
+        g.db.close()
+
+""" hasattr 함수는 뭘 체크하나"""
+
+@app.route('/')
+def timeline():
+    if not g.user:
+        return redirect(url_for('public_timeline'))
+
+    return render_template('timeline.html', messages=query_db('''
+                                                                 select message.*
+                                                                       ,user.*
+                                                                   from message, user 
+                                                                  where message.author_id = user.user_id
+                                                                    and (user.user_id = ?
+                                                                        or user.user_id in (select whom_id from follower
+                                                                                             where who_id = ?))
+                                                                  order by message.pub_date desc limit ? ''',
+                                                              [session['user_id'], session['user_id'], PER_PAGE]))
+
+@app.route('/public')
+def public_timeline():
+
+    return render_template('timeline.html', messages=query_db('''
+                                                                select message.*
+                                                                      ,user.*
+                                                                  from message, user 
+                                                                 where message.author_id = user.user_id
+                                                                 order by message.pub_date desc limit ? ''',[PER_PAGE]))
+
+@app.route('/<username>')
+def user_timeline(username):
+
+    profile_user = query_db('select * from user where username = ?',[username], one=True)
+
+    if profile_user is None:
+        abort(404)
+
+    followed = False
+
+    if g.user:
+        followed = query_db('''
+                            select 1 from follower where follower.who_id = ? and follower.whom_id = ?
+                            ''', [session['user_id'], profile_user['user_id']], one=True) is not None
+
+    return render_template('timeline.html', messages=query_db('''
+                                                                select message.*
+                                                                      ,user.*
+                                                                 from message, user
+                                                                where user.user_id = message.author_id
+                                                                  and user.user_id = ?
+                                                                  order by message.pub_date desc limit ?
+                                                              ''',[profile_user['user_id'],PER_PAGE]), followed=followed,
+                                                                profile_user=profile_user)
+
+
+@app.route('/<username>/follow')
+def follow_user(username):
+    if not g.user:
+        abort(401)
+
+    whom_id = get_user_id(username)
+    if whom_id is None:
+        abort(404)
+
+    g.db.execute('insert into follower (who_id, whom_id) values (?,?)',[session['user_id'],whom_id])
+
+    g.db.commit()
+
+    flash('You are now following "%s"' %username)
+
+    return redirect(url_for('user_timeline', username=username))
+
+
+
+@app.route('/<username>/unfollow')
+def unfollow_user(username):
+    if not g.user:
+        abort(401)
+
+    whom_id = get_user_id(username)
+
+    if whom_id is None:
+        abort(404)
+
+    g.db.execute('delete from follower where who_id=? and whom_id=?',[session['user_id'], whom_id])
+
+    g.db.commit()
+
+    flash('You are no longer following "%s"' %username)
+
+    return redirect(url_for('user_timeline',username=username))
+
+
+
+
+
+
+
+
+if __name__ == '__main__':
+    init_db()
+    app.run()
 
