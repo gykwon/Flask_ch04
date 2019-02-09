@@ -3,7 +3,7 @@
 <link rel=stylesheet type=text/css href="{{ url_for('static', filename='style.css'}}">
 <div class = page>
     <h1>MiniTwit</h1>
-    <div class="navigtion">
+    <div class=navigation>
         {% if g.user %}
             <a href ="{{ url_for('timeline') }}"> my timeline</a> |
             <a href ="{{ url_for('public_timeline') }}"> public timeline </a> |
