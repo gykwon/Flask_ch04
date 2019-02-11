@@ -246,5 +246,5 @@ app.jinja_env.filters['gravatar'] = gravatar_url
 
 
 if __name__ == '__main__':
-    init_db()
+    #init_db()
     app.run()
